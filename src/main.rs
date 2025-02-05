@@ -11,7 +11,6 @@ use clap::Parser;
 struct Args {
 
     #[arg(short, long, 
-        default_value_t = 2,
         value_parser = clap::value_parser!(u8).range(1..=3),
         help = "Select your algorithm :     \n\
                 \t 1.Odd Even Transposition \n\
