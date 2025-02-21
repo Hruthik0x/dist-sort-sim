@@ -163,9 +163,7 @@ impl Distributor {
             let (l_stream, r_stream, self_pos) = Neigbour::connect_to_neighbours(l_port, r_port);
             let rounds = get_rounds(algo, no_nodes);
             
-            let node = Node {algo, partial_order, l_stream, r_stream, rounds, self_pos, global_pos, num};
-
-            node
+            Node {algo, partial_order, l_stream, r_stream, rounds, self_pos, global_pos, num}
         }
     }
 

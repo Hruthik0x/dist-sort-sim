@@ -4,6 +4,7 @@ use std::io::{Read, Write};
 use clap::Parser;
 use std::process::{Command, Stdio};
 use utility::{CommFlags, log, Utility};
+use rand::Rng;
 
 struct Node {
     port   : u16,
@@ -39,11 +40,6 @@ struct Args {
     algo: u8,
 
     #[arg(short, long, 
-        help = "Comma seperated numbers to sort e.g. `--nums 5,3,8,1`"
-    )]
-    nums: String,
-
-    #[arg(short, long, 
         default_value_t = 1,
         value_parser = clap::value_parser!(u8).range(1..=2),
         help = "Select partial order :   \n\
@@ -51,6 +47,20 @@ struct Args {
                 \t 2. Greater than order",
     )]
     partial_order: u8,
+
+    #[arg(short, long,
+        default_value_t = String::new(),
+        help = "Comma seperated numbers to sort e.g. `--nums 5,3,8,1 \n\n
+                (No spaces between numbers)`.\n\
+                If nums and test both mentioned, test will be ignored"
+    )]
+    nums: String,
+
+    #[arg(short, long,
+        default_value_t = 500,
+        help = "No.of random generated values to be used for testing",
+    )]
+    test : u16
 }
 
 fn parse_nums(inp_str:&str) -> isize{
@@ -91,7 +101,7 @@ fn invoke_nodes(distributor_port : u16, no_nodes : u16) {
         Command::new(node_executable)
             .args(&args)
             .stdout(Stdio::null())     // .stdout(Stdio::inherit())
-            .stderr(Stdio::null())     // .stderr(Stdio::inherit())
+            .stderr(Stdio::null())     // ..stdout(Stdio::inherit())
             .spawn()
             .expect(&format!("Failed to start node process {}", i));
     }
@@ -159,31 +169,53 @@ fn receive_ready(node_data: &mut Vec<Node>) {
     }
 }
 
-fn receive_output(node_data:&mut Vec<Node>, nums:&mut Vec<i32>){
+fn receive_output(node_data:&mut Vec<Node>, output_nums:&mut Vec<i32>){
     let mut buffer = [0u8; 5];
-    let mut index = 0usize;
     for node in node_data {
         match node.stream.read(&mut buffer) {
             Ok(bytes_read) => {
                 assert_eq!(bytes_read, 5);
                 assert_eq!(buffer[0], CommFlags::Finish as u8);
-                nums[index] = i32::from_le_bytes(buffer[1..].try_into()
+                output_nums.push(i32::from_le_bytes(buffer[1..].try_into()
                                     .expect(&format!("Failed to parse {:?} into i32", &buffer[1..]
-                            )));
-                index += 1;
+                                ))));
             },
             Err(e) =>  panic!("Failed to read :{}", e)
         } 
     }
 }
 
+fn gen_random_nums(count: u16) -> Vec<i32> {
+    let mut rng = rand::rng();
+    (0..count).map(|_| rng.random_range(1..=(count as i32))).collect()
+}
+
+fn cmp_results(mut input_nums:Vec<i32>, output_nums:Vec<i32>) -> bool {
+    input_nums.sort();
+    input_nums == output_nums
+}
+
 fn main() {
     let args = Args::parse();
+    let input_nums:Vec<i32>;
+    let no_nodes:u16;
 
-    let mut nums: Vec<i32> = args.nums
-        .split(',')
-        .map(|s| parse_nums(s) as i32)
-        .collect();
+    if args.nums.len() == 0 {
+        no_nodes = args.test;
+        input_nums = gen_random_nums(no_nodes);
+        println!("Input nums :\n{:?}", input_nums);
+    }
+
+    else {
+        input_nums = args.nums
+            .split(',')
+            .map(|s| parse_nums(s) as i32)
+            .collect();
+        no_nodes = input_nums.len() as u16;
+    }
+
+
+    let mut output_nums: Vec<i32>  = Vec::new();
 
     println!("Algo          : {:?}\n\
               Partial order : {:?}", args.algo, args.partial_order);
@@ -192,15 +224,15 @@ fn main() {
 
     println!("=> Distributor server running on port : {}", port);
     
-    invoke_nodes(port, nums.len() as u16);
+    invoke_nodes(port, no_nodes);
     println!("=> Nodes invoked");
 
     let mut node_data:Vec<Node> = Vec::new();
     
-    accept_nodes(listener, &mut node_data, nums.len() as u16);
+    accept_nodes(listener, &mut node_data, no_nodes);
     println!("=> Nodes connected");
 
-    send_order(&mut node_data, args.algo, &nums, args.partial_order);
+    send_order(&mut node_data, args.algo, &input_nums, args.partial_order);
     println!("=> Order sent to the nodes");
 
     receive_ready(&mut node_data);
@@ -209,8 +241,8 @@ fn main() {
     send_start(&mut node_data);
     println!("=> Sorting started");
 
-    receive_output(&mut node_data, &mut nums);
+    receive_output(&mut node_data, &mut output_nums);
+    println!("Output :\n{:?}", output_nums);
 
-    println!("Output :\n{:?}", nums);
-
+    assert!(cmp_results(input_nums, output_nums));
 }
