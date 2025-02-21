@@ -119,10 +119,14 @@ pub fn odd_even(node_data: &mut Node,
     node_data.num
 }
 
-pub fn sasaki(node_data: &Node) -> i32 {
+pub fn sasaki(node_data: &Node,         
+    l_lock:Arc<(Mutex<Option<i32>>, Condvar)>, 
+    r_lock:Arc<(Mutex<Option<i32>>, Condvar)> ) -> i32 {
     0
 }
 
-pub fn triplet(node_data: &Node) -> i32{
+pub fn triplet(node_data: &Node,
+    l_lock:Arc<(Mutex<Option<i32>>, Condvar)>, 
+    r_lock:Arc<(Mutex<Option<i32>>, Condvar)> ) -> i32 {
     0
 }
