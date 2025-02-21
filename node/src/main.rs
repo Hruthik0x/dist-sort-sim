@@ -13,26 +13,18 @@
 // each node will have one listener, which gets two streams (neigbours)
 
 use std::net::{TcpListener, TcpStream};
-use std::io::{Read, Write};
 use std::sync::{Arc, Mutex, Condvar};
 use std::thread;
 use num_traits::FromPrimitive ;
 use clap::Parser;
+use std::io::{Read, Write};
 
-mod utils;
-use utils:: {Algo, CommFlags, Node, Position, Utility};
+use utility::{CommFlags, Utility, log};
 
 mod algos;
+mod node_util;
 
-const DEBUG: bool = true;
-
-macro_rules! log {
-    ($($arg:tt)*) => {
-        if DEBUG {
-            println!($($arg)*);
-        }
-    };
-}
+use node_util::{Algo, Node, Position, get_rounds};
 
 struct Distributor;
 struct Neigbour;
@@ -58,7 +50,7 @@ impl Distributor {
         // Max 15 used by Order
         let mut buffer = [0u8; 15];
         let mut stream = Utility::connect_to_server(distributor_port);
-        let mut node_data: Node = Node::new();
+        let mut node_data;
     
         log!("Connected to distributor");
     
@@ -69,7 +61,7 @@ impl Distributor {
     
         match stream.read(&mut buffer) {
             Ok(bytes_read) => {
-                log!("Received [{}] : {:?}", bytes_read, &buffer[..bytes_read]);
+                log!("Received from distributor [{}] : {:?}", bytes_read, &buffer[..bytes_read]);
                 let cmd = buffer[0];
                 match cmd {
                     cmd if cmd == CommFlags::Order as u8 => node_data = 
@@ -78,7 +70,7 @@ impl Distributor {
                         def_val => panic!("Invalid command : {}", def_val),
                 };
             }
-            Err(e) => log!("Failed to read : {}", e),
+            Err(e) => panic!("Failed to read : {}", e),
         }
 
         let max_clients:u8 = match node_data.self_pos {
@@ -93,29 +85,27 @@ impl Distributor {
 
         match stream.read(&mut buffer) {
             Ok(bytes_read) => {
-                log!("Received [{}] : {:?}", bytes_read, &buffer[..bytes_read]);
-                let cmd = buffer[0];
-                match cmd {           
-                    cmd if cmd == CommFlags::Start as u8 => {
-                        buffer[0] = CommFlags::Finish as u8;
-                        buffer[1..5].copy_from_slice(
-                            &Self::start_sorting(&mut node_data, l_lock, r_lock).to_le_bytes());
-                        assert_eq!(stream.write(&buffer[..2]).expect("Failed to send msg"), 2);
-                        },
-                    _ => panic!("Invalid command : {}", buffer[0]),
-                }
+                log!("Received from distributor [{}] : {:?}", bytes_read, &buffer[..bytes_read]);
+                assert_eq!(buffer[0], CommFlags::Start as u8);
+                assert_eq!(bytes_read, 1);
+                buffer[0] = CommFlags::Finish as u8;
+                buffer[1..5].copy_from_slice(
+                        &Self::start_sorting(&mut node_data, l_lock, r_lock).to_le_bytes()
+                );
+
+                assert_eq!(stream.write(&buffer[..5]).expect("Failed to send msg"), 5);
             }
-            Err(e) => log!("Failed to read : {}", e),
+            Err(e) => panic!("Failed to read : {}", e),
         }
 
     }
 
     // reports to the Distributor about its presence and its port num
     fn report(node_port: u16, stream: &mut TcpStream) {
-        let mut buffer= [0u8; 5];
+        let mut buffer= [0u8; 3];
         buffer[0] = CommFlags::Report as u8;
         buffer[1..].copy_from_slice(&node_port.to_le_bytes());
-        assert_eq!(stream.write(&buffer).expect("Failed to report to distributor"), 5);
+        assert_eq!(stream.write(&buffer).expect("Failed to report to distributor"), 3);
     }
 
     fn handle_order(buffer: &[u8]) -> Node {
@@ -167,13 +157,15 @@ impl Distributor {
             )));
 
 
-            assert!(l_port == 0 && r_port == 0);
-            assert!(no_nodes == 0);
+            assert!(!(l_port == 0 && r_port == 0));
+            assert!(no_nodes != 0);
 
             let (l_stream, r_stream, self_pos) = Neigbour::connect_to_neighbours(l_port, r_port);
-            let rounds = Utility::get_rounds(algo, no_nodes);
+            let rounds = get_rounds(algo, no_nodes);
             
-            Node {algo, partial_order, l_stream, r_stream, rounds, self_pos, global_pos, num}
+            let node = Node {algo, partial_order, l_stream, r_stream, rounds, self_pos, global_pos, num};
+
+            node
         }
     }
 
@@ -184,7 +176,7 @@ impl Distributor {
         assert_ne!(node_data.rounds, 0); 
 
         match node_data.algo {
-            Algo::OddEvenTransposition => algos::odd_even(node_data, r_lock),
+            Algo::OddEvenTransposition => algos::odd_even(node_data, l_lock, r_lock),
             Algo::Sasaki               => algos::sasaki(node_data, l_lock, r_lock),
             Algo::Triplet              => algos::triplet(node_data, l_lock, r_lock),
         }
@@ -216,6 +208,7 @@ impl Neigbour {
                     match stream.read(&mut buffer) {
 
                         Ok(bytes_read) => {
+                            log!("Received from neigbour : {:?}", &buffer[..bytes_read]);
 
                             assert_eq!(bytes_read, 2);
                             assert_eq!(buffer[0], CommFlags::NeigbourConnect as u8);
@@ -231,7 +224,8 @@ impl Neigbour {
 
                                     // l_lock is moved to the thread and the local l_lock is set to None
                                     let lock = l_lock.take().unwrap();
-                                    thread::spawn(move || Self::handle_neigbour(stream, lock));
+                                    _ = thread::Builder::new().name("Left Neigbour".to_string()).
+                                    spawn(move || Self::handle_neigbour(stream, lock));
                                 },
 
                                 claimed_pos if claimed_pos == Position::Right as u8 => {
@@ -242,7 +236,8 @@ impl Neigbour {
 
                                     // r_lock is moved to the thread and the locl r_lock is set to None
                                     let lock = r_lock.take().unwrap();
-                                    thread::spawn(move || Self::handle_neigbour(stream, lock)); 
+                                    _ = thread::Builder::new().name("Right Neigbour".to_string()).
+                                    spawn(move || Self::handle_neigbour(stream, lock)); 
                                 }
 
                                 def_val => panic!("Unexpected value ! {}", def_val),
@@ -263,7 +258,7 @@ impl Neigbour {
     }
 
     // handle comms with the neighbour node
-    pub fn handle_neigbour(mut stream: TcpStream, lock : Arc<(Mutex<Option<i32>>, Condvar)>) -> u8{
+    pub fn handle_neigbour(mut stream: TcpStream, lock : Arc<(Mutex<Option<i32>>, Condvar)>) {
         // max 5 used by CommFlags:Exchange (1) + i32 (4)
         let mut buffer = [0u8; 5];
         let (lock, cvar) = &*lock;
@@ -271,39 +266,39 @@ impl Neigbour {
         loop {
             match stream.read(&mut buffer) {
 
+                Ok(0) => {
+                    // Client disconnected
+                    break;
+                }
+
                 Ok(bytes_read) => {
 
-                    log!("Receivced [{}] : {:?}", bytes_read, &buffer[..bytes_read]);
-                    let cmd = buffer[0];
+                    log!("Receivced from neighbour [{}] : {:?}", bytes_read, &buffer[..bytes_read]);
 
-                    match cmd {
-
-                        cmd if cmd == CommFlags::Exchange as u8 => {
-                            assert_eq!(buffer.len(), 5);   
-
-                            let mut rec_val = lock.lock().unwrap();
-
-                            // Can remove this line (was just a debugging check)
-                            // checking if the previous value is consumed 
-                            assert_eq!(*rec_val, None);
-
-                            *rec_val = Some(
-                                i32::from_le_bytes(
-                                buffer[1..].try_into()
-                                .expect(&format!("Failed to parse {:?} into i32", &buffer[1..]
-                            ))));
+                    assert_eq!(bytes_read, 5);
+                    assert_eq!(buffer[0], CommFlags::Exchange as u8);
 
 
-                            // signal this to the thread handling sorting (start_sorting) 
-                            // about the received number;
-                            cvar.notify_one(); 
-                        },
 
-                        _ => panic!("Unknown command ! {}", cmd),
+                    let mut rec_val = lock.lock().unwrap();
 
-                    };
+                    // Can remove this line (was just a debugging check)
+                    // checking if the previous value is consumed 
+                    assert_eq!(*rec_val, None);
+
+                    *rec_val = Some(
+                        i32::from_le_bytes(
+                        buffer[1..].try_into()
+                        .expect(&format!("Failed to parse {:?} into i32", &buffer[1..]
+                    ))));
+
+
+                    // signal this to the thread handling sorting (start_sorting) 
+                    // about the received number;
+                    cvar.notify_one(); 
+
                 },
-                Err(e) => panic!("Error encountered :{}",e),
+                Err(e) => panic!("Failed to read data :{}",e),
             }
         }
     }
@@ -328,14 +323,14 @@ impl Neigbour {
 
         // && r_port != 0
         if l_port == 0 {
-            self_pos = Position::Right;
+            self_pos = Position::Left;
             r_stream = Some(Utility::connect_to_server(r_port));
             l_stream = None;
         }
 
         // && l_port != 0
         else if r_port == 0 {
-            self_pos = Position::Left;
+            self_pos = Position::Right;
             l_stream = Some(Utility::connect_to_server(l_port));
             r_stream = None;
         }

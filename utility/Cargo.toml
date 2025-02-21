@@ -1,0 +1,12 @@
+[package]
+name = "utility"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+num-derive = "0.4"   # Procedural macros for deriving traits
+num-traits = "0.2"   # Required for using FromPrimitive
+

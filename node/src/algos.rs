@@ -1,9 +1,12 @@
-use crate::utils:: {CommFlags, Node, Position, PartialOrder};
+use utility::CommFlags;
 use std::sync::{Arc, Mutex, Condvar};
-use std::io:: Write;
 use std::mem::swap;
+use std::io::Write;
 
-#[derive(PartialEq)]
+use crate::node_util::{Node, Position, PartialOrder};
+use utility::log;
+
+#[derive(PartialEq, Debug)]
 enum OddEven {
     Odd,
     Even
@@ -19,6 +22,7 @@ enum OddEven {
 
 
 pub fn odd_even(node_data: &mut Node,
+    l_lock:Arc<(Mutex<Option<i32>>, Condvar)>,
     r_lock:Arc<(Mutex<Option<i32>>, Condvar)>) -> i32{
 
     let mut sender;
@@ -33,7 +37,7 @@ pub fn odd_even(node_data: &mut Node,
 
     buffer[0] = CommFlags::Exchange as u8;
 
-    for _ in 1..node_data.rounds+1 {
+    for _ in 0..node_data.rounds {
 
         // avoided % operator for round as it is computationally expensive
 
@@ -48,7 +52,6 @@ pub fn odd_even(node_data: &mut Node,
             receiver = OddEven::Even;
             odd_round = true;
         }
-
 
         // have a neighbour at right, in other words :
         // if the node is leftmost or in middle 
@@ -102,10 +105,9 @@ pub fn odd_even(node_data: &mut Node,
 
         }
 
-        else if self_pos == sender {
+        else if self_pos == sender && node_data.self_pos != Position::Left {
 
             // send data to left neigbour
-
             buffer[1..].copy_from_slice(&node_data.num.to_le_bytes());
 
             assert_eq!(
@@ -114,7 +116,27 @@ pub fn odd_even(node_data: &mut Node,
                     .expect("Failed to send the message"),
                 5
             );
+
+            // receive data from left neighboour
+            let (lock, cvar) = &*l_lock;
+
+            // smart pointer (MutexGaurd) to the mutex 
+            // no need to dereference lock => (*lock).lock().unwrap() 
+            // as rust automatically dereferences it.
+            let mut rec_val = lock.lock().unwrap(); 
+
+            // no need to mention (*rec_val).is_some() as rust automatically dereferences it
+            while ! rec_val.is_some() {
+                rec_val = cvar.wait(rec_val).unwrap();
+            }
+
+            // updating val to whatever sent by the neighbour
+            node_data.num = rec_val.unwrap();
+
+            // marking it as value consumed.
+            *rec_val = None;
         }
+
     }
     node_data.num
 }
