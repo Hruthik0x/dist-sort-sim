@@ -100,8 +100,10 @@ fn invoke_nodes(distributor_port : u16, no_nodes : u16) {
         
         Command::new(node_executable)
             .args(&args)
+            // .stdout(Stdio::inherit())
+            // .stderr(Stdio::inherit())
             .stdout(Stdio::null())     // .stdout(Stdio::inherit())
-            .stderr(Stdio::null())     // ..stdout(Stdio::inherit())
+            .stderr(Stdio::null())     // .stderr(Stdio::inherit())
             .spawn()
             .expect(&format!("Failed to start node process {}", i));
     }

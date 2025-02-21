@@ -25,12 +25,10 @@ pub fn odd_even(node_data: &mut Node,
     l_lock:Arc<(Mutex<Option<i32>>, Condvar)>,
     r_lock:Arc<(Mutex<Option<i32>>, Condvar)>) -> i32{
 
-    let mut sender;
-    let mut receiver;
     let mut odd_round   = true;
-    let self_pos: OddEven     = match node_data.global_pos % 2 {
-                                    0 => OddEven::Even,
-                                    1 => OddEven::Odd,
+    let self_odd_even     = match node_data.global_pos % 2 {
+                                    0 => false,
+                                    1 => true,
                                     def_val => panic!("Is not supposed to happen ! returned : {}", def_val)
                                 };
     let mut buffer= [0u8; 5];
@@ -39,25 +37,11 @@ pub fn odd_even(node_data: &mut Node,
 
     for _ in 0..node_data.rounds {
 
-        // avoided % operator for round as it is computationally expensive
-
-        if odd_round {
-            sender = OddEven::Even;
-            receiver = OddEven::Odd;
-            odd_round = false;
-        }
-
-        else {
-            sender = OddEven::Odd;
-            receiver = OddEven::Even;
-            odd_round = true;
-        }
-
         // have a neighbour at right, in other words :
         // if the node is leftmost or in middle 
         //   it has a neighbour at right, i,e 
         //   its position should not be rightmost
-        if self_pos == receiver && node_data.self_pos != Position::Right {
+        if self_odd_even == odd_round && node_data.self_pos != Position::Right {
 
             let (lock, cvar) = &*r_lock;
 
@@ -105,7 +89,7 @@ pub fn odd_even(node_data: &mut Node,
 
         }
 
-        else if self_pos == sender && node_data.self_pos != Position::Left {
+        else if self_odd_even != odd_round && node_data.self_pos != Position::Left {
 
             // send data to left neigbour
             buffer[1..].copy_from_slice(&node_data.num.to_le_bytes());
@@ -135,6 +119,14 @@ pub fn odd_even(node_data: &mut Node,
 
             // marking it as value consumed.
             *rec_val = None;
+        }
+
+        // avoided % operator for round as it is computationally expensive
+        if odd_round {
+            odd_round = false;
+        }
+        else {
+            odd_round = true;
         }
 
     }

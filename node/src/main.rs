@@ -276,8 +276,6 @@ impl Neigbour {
                     assert_eq!(bytes_read, 5);
                     assert_eq!(buffer[0], CommFlags::Exchange as u8);
 
-
-
                     let mut rec_val = lock.lock().unwrap();
 
                     // Can remove this line (was just a debugging check)
