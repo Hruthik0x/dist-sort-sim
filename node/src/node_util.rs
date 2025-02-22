@@ -8,14 +8,14 @@ pub enum Algo {
     Triplet
 }
 
-#[derive(FromPrimitive, PartialEq, Debug)]
+#[derive(FromPrimitive, PartialEq, Debug, Clone, Copy)]
 pub enum Position {
     Left,
     Right,
     Middle,
 }
 
-#[derive(FromPrimitive, PartialEq, Debug)]
+#[derive(FromPrimitive, PartialEq, Debug, Clone, Copy)]
 pub enum PartialOrder {
     LessThan,
     GreaterThan,
@@ -23,14 +23,14 @@ pub enum PartialOrder {
 
 #[derive(Debug)]
 pub struct Node {
-    pub algo         : Algo,
+    pub algo          : Algo,
     pub partial_order : PartialOrder,
-    pub l_stream     : Option<TcpStream>,
-    pub r_stream     : Option<TcpStream>,
-    pub rounds       : u16,
-    pub self_pos     : Position,
-    pub global_pos   : u16,   // not used by sasaki
-    pub num          : i32,
+    pub l_stream      : Option<TcpStream>,
+    pub r_stream      : Option<TcpStream>,
+    pub rounds        : u16,
+    pub relative_pos  : Position,    // position relative to other nodes
+    pub global_pos    : u16,         // not used by sasaki
+    pub num           : i32,
 }
 
 // impl Node {
@@ -41,7 +41,7 @@ pub struct Node {
 //             l_stream     : None, 
 //             r_stream     : None, 
 //             rounds       : 0, 
-//             self_pos     : Position::Middle,
+//             relative_pos     : Position::Middle,
 //             global_pos   : 0,
 //             num          : 0, 
 //         }

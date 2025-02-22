@@ -35,8 +35,8 @@ impl Distributor {
     // Handles the communication with the distributor
     pub fn handle_distributor(distributor_port: u16){
 
-        let l_lock          = Arc::new((Mutex::new(None), Condvar::new()));
-        let r_lock          = Arc::new((Mutex::new(None), Condvar::new()));
+        let l_lock       = Arc::new((Mutex::new(Vec::new()), Condvar::new()));
+        let r_lock       = Arc::new((Mutex::new(Vec::new()), Condvar::new()));
 
         let l_lock_clone = Arc::clone(&l_lock);
         let r_lock_clone = Arc::clone(&r_lock);
@@ -73,7 +73,7 @@ impl Distributor {
             Err(e) => panic!("Failed to read : {}", e),
         }
 
-        let max_clients:u8 = match node_data.self_pos {
+        let max_clients:u8 = match node_data.relative_pos {
             Position::Middle => 2,
             _ => 1
         };
@@ -160,21 +160,21 @@ impl Distributor {
             assert!(!(l_port == 0 && r_port == 0));
             assert!(no_nodes != 0);
 
-            let (l_stream, r_stream, self_pos) = Neigbour::connect_to_neighbours(l_port, r_port);
+            let (l_stream, r_stream, relative_pos) = Neigbour::connect_to_neighbours(l_port, r_port);
             let rounds = get_rounds(algo, no_nodes);
             
-            Node {algo, partial_order, l_stream, r_stream, rounds, self_pos, global_pos, num}
+            Node {algo, partial_order, l_stream, r_stream, rounds, relative_pos, global_pos, num}
         }
     }
 
     fn start_sorting(node_data:&mut Node, 
-        l_lock:Arc<(Mutex<Option<i32>>, Condvar)>, 
-        r_lock:Arc<(Mutex<Option<i32>>, Condvar)>) -> i32 {
+        l_lock:Arc<(Mutex<Vec<i32>>, Condvar)>, 
+        r_lock:Arc<(Mutex<Vec<i32>>, Condvar)>) -> i32 {
 
         assert_ne!(node_data.rounds, 0); 
 
         match node_data.algo {
-            Algo::OddEvenTransposition => algos::odd_even(node_data, l_lock, r_lock),
+            Algo::OddEvenTransposition => algos::OddEven::odd_even_transposition(node_data, l_lock, r_lock),
             Algo::Sasaki               => algos::sasaki(node_data, l_lock, r_lock),
             Algo::Triplet              => algos::triplet(node_data, l_lock, r_lock),
         }
@@ -186,8 +186,8 @@ impl Neigbour {
 
     // listen to incoming conns from neighbour nodes
     pub fn listen_incoming(listener: TcpListener, 
-                           l_lock : Arc<(Mutex<Option<i32>>, Condvar)>, 
-                           r_lock : Arc<(Mutex<Option<i32>>, Condvar)>,
+                           l_lock : Arc<(Mutex<Vec<i32>>, Condvar)>, 
+                           r_lock : Arc<(Mutex<Vec<i32>>, Condvar)>,
                            max_clients : u8 ){
 
         // wrapping in Some() so can be set to None when value is moved to threads.
@@ -202,7 +202,6 @@ impl Neigbour {
         for stream in listener.incoming() {
             match stream {
                 Ok(mut stream) => {
-
                     match stream.read(&mut buffer) {
 
                         Ok(bytes_read) => {
@@ -256,7 +255,7 @@ impl Neigbour {
     }
 
     // handle comms with the neighbour node
-    pub fn handle_neigbour(mut stream: TcpStream, lock : Arc<(Mutex<Option<i32>>, Condvar)>) {
+    pub fn handle_neigbour(mut stream: TcpStream, lock : Arc<(Mutex<Vec<i32>>, Condvar)>) {
         // max 5 used by CommFlags:Exchange (1) + i32 (4)
         let mut buffer = [0u8; 5];
         let (lock, cvar) = &*lock;
@@ -265,6 +264,7 @@ impl Neigbour {
             match stream.read(&mut buffer) {
 
                 Ok(0) => {
+                    // Should assert all rounds are done and disconnection is not abrupt - flag{pending}
                     // Client disconnected
                     break;
                 }
@@ -278,18 +278,13 @@ impl Neigbour {
 
                     let mut rec_val = lock.lock().unwrap();
 
-                    // Can remove this line (was just a debugging check)
-                    // checking if the previous value is consumed 
-                    assert_eq!(*rec_val, None);
-
-                    *rec_val = Some(
+                    rec_val.push(
                         i32::from_le_bytes(
                         buffer[1..].try_into()
                         .expect(&format!("Failed to parse {:?} into i32", &buffer[1..]
                     ))));
 
-
-                    // signal this to the thread handling sorting (start_sorting) 
+                    // signal this to the thread that is handling sorting
                     // about the received number;
                     cvar.notify_one(); 
 
@@ -309,7 +304,7 @@ impl Neigbour {
         
         let mut l_stream;
         let mut r_stream;
-        let self_pos;
+        let relative_pos;
         let mut buffer = [0u8; 2];
         buffer[0] = CommFlags::NeigbourConnect as u8;
 
@@ -319,20 +314,20 @@ impl Neigbour {
 
         // && r_port != 0
         if l_port == 0 {
-            self_pos = Position::Left;
+            relative_pos = Position::Left;
             r_stream = Some(Utility::connect_to_server(r_port));
             l_stream = None;
         }
 
         // && l_port != 0
         else if r_port == 0 {
-            self_pos = Position::Right;
+            relative_pos = Position::Right;
             l_stream = Some(Utility::connect_to_server(l_port));
             r_stream = None;
         }
 
         else {
-            self_pos = Position::Middle;
+            relative_pos = Position::Middle;
             l_stream = Some(Utility::connect_to_server(l_port));
             r_stream = Some(Utility::connect_to_server(r_port));
         }
@@ -357,7 +352,7 @@ impl Neigbour {
                 .expect(&format!("Failed to send the message")), 2);
         }
 
-        (l_stream, r_stream, self_pos)
+        (l_stream, r_stream, relative_pos)
     }
 
 
