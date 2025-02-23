@@ -13,8 +13,6 @@
 // each node will have one listener, which gets two streams (neigbours)
 
 use std::net::{TcpListener, TcpStream};
-use std::sync::{Arc, Mutex, Condvar};
-use std::thread;
 use num_traits::FromPrimitive ;
 use clap::Parser;
 use std::io::{Read, Write};
@@ -34,16 +32,6 @@ impl Distributor {
 
     // Handles the communication with the distributor
     pub fn handle_distributor(distributor_port: u16){
-
-        let l_lock       = Arc::new((Mutex::new(Vec::new()), Condvar::new()));
-        let r_lock       = Arc::new((Mutex::new(Vec::new()), Condvar::new()));
-
-        let l_lock_clone = Arc::clone(&l_lock);
-        let r_lock_clone = Arc::clone(&r_lock);
-
-        // Aquiring lock to avoid incoming connections 
-        // let (lock, cvar) = &*ready_lock;
-        // let mut client_count = lock.lock().unwrap();
 
         let (listener, self_port_num) = Utility::start_server();
 
@@ -73,12 +61,7 @@ impl Distributor {
             Err(e) => panic!("Failed to read : {}", e),
         }
 
-        let max_clients:u8 = match node_data.relative_pos {
-            Position::Middle => 2,
-            _ => 1
-        };
-
-        Neigbour::listen_incoming(listener, l_lock_clone, r_lock_clone, max_clients);
+        Neigbour::accept_neighbours(listener, &mut node_data);
 
         // Sending the ready flag
         assert_eq!(stream.write(&[CommFlags::Ready as u8]).expect("Failed to send ready msg"), 1);
@@ -90,7 +73,7 @@ impl Distributor {
                 assert_eq!(bytes_read, 1);
                 buffer[0] = CommFlags::Finish as u8;
                 buffer[1..5].copy_from_slice(
-                        &Self::start_sorting(&mut node_data, l_lock, r_lock).to_le_bytes()
+                        &Self::start_sorting(&mut node_data).to_le_bytes()
                 );
 
                 assert_eq!(stream.write(&buffer[..5]).expect("Failed to send msg"), 5);
@@ -160,23 +143,21 @@ impl Distributor {
             assert!(!(l_port == 0 && r_port == 0));
             assert!(no_nodes != 0);
 
-            let (l_stream, r_stream, relative_pos) = Neigbour::connect_to_neighbours(l_port, r_port);
+            let (write_l, write_r, relative_pos) = Neigbour::connect_to_neighbours(l_port, r_port);
             let rounds = get_rounds(algo, no_nodes);
             
-            Node {algo, partial_order, l_stream, r_stream, rounds, relative_pos, global_pos, num}
+            Node {algo, partial_order, write_l, write_r, read_l : None, read_r : None, rounds, relative_pos, global_pos, num}
         }
     }
 
-    fn start_sorting(node_data:&mut Node, 
-        l_lock:Arc<(Mutex<Vec<i32>>, Condvar)>, 
-        r_lock:Arc<(Mutex<Vec<i32>>, Condvar)>) -> i32 {
+    fn start_sorting(node_data:&mut Node) -> i32 {
 
         assert_ne!(node_data.rounds, 0); 
 
         match node_data.algo {
-            Algo::OddEvenTransposition => algos::OddEven::odd_even_transposition(node_data, l_lock, r_lock),
-            Algo::Sasaki               => algos::sasaki(node_data, l_lock, r_lock),
-            Algo::Triplet              => algos::triplet(node_data, l_lock, r_lock),
+            Algo::OddEvenTransposition => algos::OddEven::odd_even_transposition(node_data),
+            Algo::Sasaki               => algos::sasaki(node_data),
+            Algo::Triplet              => algos::triplet(node_data),
         }
     }
 
@@ -184,122 +165,66 @@ impl Distributor {
 
 impl Neigbour {
 
-    // listen to incoming conns from neighbour nodes
-    pub fn listen_incoming(listener: TcpListener, 
-                           l_lock : Arc<(Mutex<Vec<i32>>, Condvar)>, 
-                           r_lock : Arc<(Mutex<Vec<i32>>, Condvar)>,
-                           max_clients : u8 ){
-
-        // wrapping in Some() so can be set to None when value is moved to threads.
-        let mut l_lock = Some(l_lock);
-        let mut r_lock = Some(r_lock);
-
-        // Don't need more than 2 bytes
+    pub fn accept_neighbours(listener: TcpListener, node_data: &mut Node){
+        let mut no_clients:u8 = 0;
+        let max_clients:u8 = match node_data.relative_pos {
+            Position::Middle => 2,
+            _ => 1
+        };
         let mut buffer = [0u8; 2];
+        while no_clients != max_clients {
+            for stream in listener.incoming() { 
+                match stream {
+                    Ok(mut stream) => {
+                        no_clients += 1;
+                        match stream.read(&mut buffer) {
+                            Ok(bytes_read) => {
 
-        let mut conn_count = 0u8;
+                                log!("Received from neigbour : {:?}", &buffer[..bytes_read]);
+                                assert_eq!(bytes_read, 2);
+                                assert_eq!(buffer[0], CommFlags::NeigbourConnect as u8);
+    
+                                let claimed_pos = buffer[1];
 
-        for stream in listener.incoming() {
-            match stream {
-                Ok(mut stream) => {
-                    match stream.read(&mut buffer) {
+                                match claimed_pos {
 
-                        Ok(bytes_read) => {
-                            log!("Received from neigbour : {:?}", &buffer[..bytes_read]);
+                                    claimed_pos if claimed_pos == Position::Left as u8 => {
+                                        assert_ne!(node_data.relative_pos, Position::Left);
+                                        node_data.read_l = Some(stream);
+                                        if node_data.relative_pos == Position::Right || 
+                                           node_data.read_r.is_some() {
+                                            break;
+                                        }
+                                    },
 
-                            assert_eq!(bytes_read, 2);
-                            assert_eq!(buffer[0], CommFlags::NeigbourConnect as u8);
+                                    claimed_pos if claimed_pos == Position::Right as u8 => {
+                                        assert_ne!(node_data.relative_pos, Position::Right);
+                                        node_data.read_r = Some(stream);
+                                        if node_data.relative_pos == Position::Left || 
+                                           node_data.read_l.is_some() {
+                                            break;
+                                        }
+                                    },
 
-                            let claimed_pos = buffer[1];
-                            match claimed_pos {
-
-                                claimed_pos if claimed_pos == Position::Left as u8 => {
-
-                                    // should be some(lock), if it is none, it means
-                                    // more than one connection claimed that its the left neighbour
-                                    assert!(l_lock.is_some());
-
-                                    // l_lock is moved to the thread and the local l_lock is set to None
-                                    let lock = l_lock.take().unwrap();
-                                    _ = thread::Builder::new().name("Left Neigbour".to_string()).
-                                    spawn(move || Self::handle_neigbour(stream, lock));
-                                },
-
-                                claimed_pos if claimed_pos == Position::Right as u8 => {
-
-                                    // should be some(lock), if it is none, it means
-                                    // more than one connection claimed that its the right neighbour
-                                    assert!(r_lock.is_some());
-
-                                    // r_lock is moved to the thread and the locl r_lock is set to None
-                                    let lock = r_lock.take().unwrap();
-                                    _ = thread::Builder::new().name("Right Neigbour".to_string()).
-                                    spawn(move || Self::handle_neigbour(stream, lock)); 
+                                    def_val => panic!("Unexpected value {}", def_val)
                                 }
-
-                                def_val => panic!("Unexpected value ! {}", def_val),
-                            }
-
+                            },
+                            Err(e) => panic!("Error : {}", e),
                         }
-                        Err(e) => panic!("Failed to read data : {}", e)
-                    }
-
-                    conn_count += 1;
-                    if conn_count == max_clients {
-                        break;
-                    }
+                    },
+                    Err(e) => panic!("Error : {}",e),
                 }
-                Err(e) => log!("Incoming Connection failed: {}", e),
             }
         }
     }
 
-    // handle comms with the neighbour node
-    pub fn handle_neigbour(mut stream: TcpStream, lock : Arc<(Mutex<Vec<i32>>, Condvar)>) {
-        // max 5 used by CommFlags:Exchange (1) + i32 (4)
-        let mut buffer = [0u8; 5];
-        let (lock, cvar) = &*lock;
-
-        loop {
-            match stream.read(&mut buffer) {
-
-                Ok(0) => {
-                    // Should assert all rounds are done and disconnection is not abrupt - flag{pending}
-                    // Client disconnected
-                    break;
-                }
-
-                Ok(bytes_read) => {
-
-                    log!("Receivced from neighbour [{}] : {:?}", bytes_read, &buffer[..bytes_read]);
-
-                    assert_eq!(bytes_read, 5);
-                    assert_eq!(buffer[0], CommFlags::Exchange as u8);
-
-                    let mut rec_val = lock.lock().unwrap();
-
-                    rec_val.push(
-                        i32::from_le_bytes(
-                        buffer[1..].try_into()
-                        .expect(&format!("Failed to parse {:?} into i32", &buffer[1..]
-                    ))));
-
-                    // signal this to the thread that is handling sorting
-                    // about the received number;
-                    cvar.notify_one(); 
-
-                },
-                Err(e) => panic!("Failed to read data :{}",e),
-            }
-        }
-    }
 
 
     // Connects to nieghbour nodes and returns the streams
     // These streams are used to send data to the neighbours
     // Called by handle_distributor immediately after receiving 
     // order (CommFlags::Order) from the distributor
-    fn connect_to_neighbours(l_port:u16, r_port:u16) -> 
+    pub fn connect_to_neighbours(l_port:u16, r_port:u16) -> 
         (Option<TcpStream>, Option<TcpStream>, Position) {
         
         let mut l_stream;

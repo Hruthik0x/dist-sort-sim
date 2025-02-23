@@ -192,8 +192,12 @@ fn gen_random_nums(count: u16) -> Vec<i32> {
     (0..count).map(|_| rng.random_range(1..=(count as i32))).collect()
 }
 
-fn cmp_results(mut input_nums:Vec<i32>, output_nums:Vec<i32>) -> bool {
-    input_nums.sort();
+fn cmp_results(mut input_nums:Vec<i32>, output_nums:Vec<i32>, partial_order : u8) -> bool {
+    match partial_order {
+        1 => input_nums.sort(),
+        2 => input_nums.sort_by(|a, b| b.cmp(a)) ,
+        def_val => panic!("Unexpected partial order given {}", def_val),
+    };
     input_nums == output_nums
 }
 
@@ -246,5 +250,5 @@ fn main() {
     receive_output(&mut node_data, &mut output_nums);
     println!("Output :\n{:?}", output_nums);
 
-    assert!(cmp_results(input_nums, output_nums));
+    assert!(cmp_results(input_nums, output_nums, args.partial_order));
 }

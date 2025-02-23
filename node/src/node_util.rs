@@ -25,8 +25,10 @@ pub enum PartialOrder {
 pub struct Node {
     pub algo          : Algo,
     pub partial_order : PartialOrder,
-    pub l_stream      : Option<TcpStream>,
-    pub r_stream      : Option<TcpStream>,
+    pub write_l       : Option<TcpStream>,
+    pub write_r       : Option<TcpStream>,
+    pub read_l        : Option<TcpStream>,
+    pub read_r        : Option<TcpStream>,
     pub rounds        : u16,
     pub relative_pos  : Position,    // position relative to other nodes
     pub global_pos    : u16,         // not used by sasaki
