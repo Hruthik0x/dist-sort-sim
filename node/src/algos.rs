@@ -2,7 +2,7 @@ use utility::CommFlags;
 use std::net::TcpStream;
 use std::io::{Read, Write};
 
-use crate::node_util::{Node, Position, PartialOrder};
+use crate::node_utils::{Node, RelativePos, PartialOrder};
 use utility::log;
 
 #[derive(PartialEq, Debug)]
@@ -56,7 +56,7 @@ impl OddEven {
     pub fn odd_even_transposition(node_data: &mut Node) -> i32{
 
         let mut is_odd_round     = true;
-        let has_odd_index     = match node_data.global_pos % 2 {
+        let has_odd_index     = match node_data.glb_pos % 2 {
                                         0 => false,
                                         1 => true,
                                         def_val => panic!("Is not supposed to happen ! returned : {}", def_val)
@@ -67,39 +67,40 @@ impl OddEven {
 
         for _ in 0..node_data.rounds {
 
-            let (read_stream, write_stream, compute_fn) =
+            let (link, compute_fn) =
 
-            match (has_odd_index == is_odd_round, node_data.relative_pos) {
+            match (has_odd_index == is_odd_round, node_data.rel_pos) {
 
                 // Current round -> odd round and node is at odd index or 
                 // Current round -> even round and node is at even index
-                (true, pos) if pos != Position::Right => {
-                    (Some(&mut node_data.read_r), Some(&mut node_data.write_r), 
+                (true, pos) if pos != RelativePos::Right => {
+                    (node_data.right_link.as_mut(),
                     Some(Self::should_swap_right as fn(PartialOrder, i32, i32) -> bool))
                 }
 
                 // Current round -> even round and node is at odd index or 
                 // Current round -> odd round and node is at even index
-                (false, pos) if pos != Position::Left => {
-                    (Some(&mut node_data.read_l), Some(&mut node_data.write_l), 
+                (false, pos) if pos != RelativePos::Left => {
+                    (node_data.left_link.as_mut(),
                         Some(Self::should_swap_left as fn(PartialOrder, i32, i32) -> bool))
                 }
-                _ => (None, None, None),
+                _ => (None, None),
             };
 
-            if let (Some(read_stream), Some(write_stream), Some(compute_fn)) =
-                 (read_stream, write_stream, compute_fn) {
+            if let (Some(link), Some(compute_fn)) =
+                 (link, compute_fn) {
+
+                let (write_stream, read_stream) = (&mut link.write_stream, &mut link.read_stream);
 
                 buffer[1..].copy_from_slice(&node_data.num.to_le_bytes());
 
                 assert_eq!(
-                    write_stream.as_mut().unwrap()
-                        .write(&buffer)
-                        .expect("Failed to send the message"),
+                    write_stream
+                        .write(&buffer).expect("Failed to send the message"),
                     5
                 );
 
-                let rec_val = Self::receive_val(read_stream.as_mut().unwrap());
+                let rec_val = Self::receive_val(read_stream);
 
                 // compute
                 if compute_fn(node_data.partial_order, node_data.num, rec_val) {
@@ -118,13 +119,47 @@ impl OddEven {
 // non - starred 0
 
 pub fn sasaki(node_data: &Node) -> i32 {
-    let mut area:i8 = match node_data.relative_pos{
-        Position::Left => -1,
+    let mut area:i8 = match node_data.rel_pos{
+        RelativePos::Left => -1,
         _ => 0,
     };
+
+    // for _ in 0..node_data.rounds {
+    //     if node_data.read_r
+    // }
+
+    // RelativePos => Left 
+    // send element on right_W stream
+    // receive element from right_r strem
+    // update val, don't care if its marked or not
+
+    // RelativePos => right 
+    // send element on left_w stream
+
+    // receive element from left_r stream
+    // if update val 
+    //       new val is marked (marked moved to right), area -- // receiver of marked element
+    //       old val is marked (marked moved to left),  area ++ // sender   of marked element
+
+    // middle 
+    // send element on left_w stream
+    // send element on right_w stream
+
+    // recieve element on left_r stream
+    //       new val is marked (marked moved to right), area -- // receiver of marked element
+    //       old val is marked (marked moved to left),  area ++ // sender   of marked element
+
+    // receive element on right_r stream
+    // update val, don't care if val is marked or not
+
+    if node_data.rel_pos == RelativePos::Left {
+        
+    }
+
+
     // in sasaki rr-- ls++
-    // receive a marked element on right stream, then area --
-    // send the marked element on left stream, then area ++
+    // receive a marked element from left stream (marked element moved right) then self.area --
+    // send the marked element on the left stream (markedd element moved left) then self.area ++
     0
 }
 

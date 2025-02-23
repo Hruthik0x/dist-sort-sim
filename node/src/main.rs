@@ -20,9 +20,9 @@ use std::io::{Read, Write};
 use utility::{CommFlags, Utility, log};
 
 mod algos;
-mod node_util;
+mod node_utils;
 
-use node_util::{Algo, Node, Position, get_rounds};
+use node_utils::{get_rounds, Algo, Link, Node, RelativePos};
 
 struct Distributor;
 struct Neigbour;
@@ -53,7 +53,7 @@ impl Distributor {
                 let cmd = buffer[0];
                 match cmd {
                     cmd if cmd == CommFlags::Order as u8 => node_data = 
-                        Self::handle_order(&buffer[1..]) ,
+                        Self::handle_order(&buffer[1..], listener) ,
 
                         def_val => panic!("Invalid command : {}", def_val),
                 };
@@ -61,7 +61,7 @@ impl Distributor {
             Err(e) => panic!("Failed to read : {}", e),
         }
 
-        Neigbour::accept_neighbours(listener, &mut node_data);
+        // Neigbour::accept_neighbours(listener, &mut node_data);
 
         // Sending the ready flag
         assert_eq!(stream.write(&[CommFlags::Ready as u8]).expect("Failed to send ready msg"), 1);
@@ -91,7 +91,7 @@ impl Distributor {
         assert_eq!(stream.write(&buffer).expect("Failed to report to distributor"), 3);
     }
 
-    fn handle_order(buffer: &[u8]) -> Node {
+    fn handle_order(buffer: &[u8], listener:TcpListener) -> Node {
         if buffer.len() != 14 {
             panic!("Invalid order : {:?}", buffer);
         }
@@ -103,7 +103,7 @@ impl Distributor {
             let no_nodes = &buffer[2..4];
             let l_port = &buffer[4..6];
             let r_port = &buffer[6..8];
-            let global_pos = &buffer[8..10];
+            let glb_pos = &buffer[8..10];
             let num = &buffer[10..14];
 
 
@@ -128,9 +128,9 @@ impl Distributor {
                 .expect(&format!("Failed to parse {:?} into u16", r_port
             )));
 
-            let global_pos = u16::from_le_bytes(
-                global_pos.try_into()
-                .expect(&format!("Failed to parse {:?} into u16", global_pos
+            let glb_pos = u16::from_le_bytes(
+                glb_pos.try_into()
+                .expect(&format!("Failed to parse {:?} into u16", glb_pos
             )));
 
 
@@ -143,10 +143,10 @@ impl Distributor {
             assert!(!(l_port == 0 && r_port == 0));
             assert!(no_nodes != 0);
 
-            let (write_l, write_r, relative_pos) = Neigbour::connect_to_neighbours(l_port, r_port);
             let rounds = get_rounds(algo, no_nodes);
+            let (left_link, right_link, rel_pos) = Neigbour::get_links_rel_pos(listener, l_port, r_port);
             
-            Node {algo, partial_order, write_l, write_r, read_l : None, read_r : None, rounds, relative_pos, global_pos, num}
+            Node {algo, partial_order, left_link, right_link, rounds, rel_pos, glb_pos, num}
         }
     }
 
@@ -161,17 +161,22 @@ impl Distributor {
         }
     }
 
+
+
 }
 
 impl Neigbour {
 
-    pub fn accept_neighbours(listener: TcpListener, node_data: &mut Node){
+    fn get_read_streams(listener: TcpListener, rel_pos:RelativePos) -> (Option<TcpStream>, Option<TcpStream>) {
         let mut no_clients:u8 = 0;
-        let max_clients:u8 = match node_data.relative_pos {
-            Position::Middle => 2,
+        let max_clients:u8 = match rel_pos {
+            RelativePos::Middle => 2,
             _ => 1
         };
         let mut buffer = [0u8; 2];
+        let mut l_read = None;
+        let mut r_read = None;
+
         while no_clients != max_clients {
             for stream in listener.incoming() { 
                 match stream {
@@ -188,21 +193,21 @@ impl Neigbour {
 
                                 match claimed_pos {
 
-                                    claimed_pos if claimed_pos == Position::Left as u8 => {
-                                        assert_ne!(node_data.relative_pos, Position::Left);
-                                        node_data.read_l = Some(stream);
-                                        if node_data.relative_pos == Position::Right || 
-                                           node_data.read_r.is_some() {
-                                            break;
+                                    claimed_pos if claimed_pos == RelativePos::Left as u8 => {
+                                        assert_ne!(rel_pos, RelativePos::Left);
+                                        l_read = Some(stream);
+                                        if rel_pos == RelativePos::Right || 
+                                           r_read.is_some() {
+                                            return (l_read, r_read);
                                         }
                                     },
 
-                                    claimed_pos if claimed_pos == Position::Right as u8 => {
-                                        assert_ne!(node_data.relative_pos, Position::Right);
-                                        node_data.read_r = Some(stream);
-                                        if node_data.relative_pos == Position::Left || 
-                                           node_data.read_l.is_some() {
-                                            break;
+                                    claimed_pos if claimed_pos == RelativePos::Right as u8 => {
+                                        assert_ne!(rel_pos, RelativePos::Right);
+                                        r_read = Some(stream);
+                                        if rel_pos == RelativePos::Left || 
+                                           l_read.is_some() {
+                                           return (l_read, r_read);
                                         }
                                     },
 
@@ -216,6 +221,7 @@ impl Neigbour {
                 }
             }
         }
+        (l_read, r_read)
     }
 
 
@@ -224,12 +230,12 @@ impl Neigbour {
     // These streams are used to send data to the neighbours
     // Called by handle_distributor immediately after receiving 
     // order (CommFlags::Order) from the distributor
-    pub fn connect_to_neighbours(l_port:u16, r_port:u16) -> 
-        (Option<TcpStream>, Option<TcpStream>, Position) {
+    fn get_write_streams(l_port:u16, r_port:u16) -> 
+        (Option<TcpStream>, Option<TcpStream>, RelativePos) {
         
         let mut l_stream;
         let mut r_stream;
-        let relative_pos;
+        let rel_pos;
         let mut buffer = [0u8; 2];
         buffer[0] = CommFlags::NeigbourConnect as u8;
 
@@ -239,20 +245,20 @@ impl Neigbour {
 
         // && r_port != 0
         if l_port == 0 {
-            relative_pos = Position::Left;
+            rel_pos = RelativePos::Left;
             r_stream = Some(Utility::connect_to_server(r_port));
             l_stream = None;
         }
 
         // && l_port != 0
         else if r_port == 0 {
-            relative_pos = Position::Right;
+            rel_pos = RelativePos::Right;
             l_stream = Some(Utility::connect_to_server(l_port));
             r_stream = None;
         }
 
         else {
-            relative_pos = Position::Middle;
+            rel_pos = RelativePos::Middle;
             l_stream = Some(Utility::connect_to_server(l_port));
             r_stream = Some(Utility::connect_to_server(r_port));
         }
@@ -262,7 +268,7 @@ impl Neigbour {
         if let Some(ref mut stream) = l_stream {
 
             // have to report to self left neighbour as its right neighbour
-            buffer[1] = Position::Right as u8;
+            buffer[1] = RelativePos::Right as u8;
             assert_eq!(stream.write(&buffer)
                 .expect(&format!("Failed to send the message")), 2);
         }
@@ -272,13 +278,37 @@ impl Neigbour {
         if let Some(ref mut stream) = r_stream {
 
             // have to report to self right neighbout as its left neighbour
-            buffer[1] = Position::Left as u8;
+            buffer[1] = RelativePos::Left as u8;
             assert_eq!(stream.write(&buffer)
                 .expect(&format!("Failed to send the message")), 2);
         }
 
-        (l_stream, r_stream, relative_pos)
+        (l_stream, r_stream, rel_pos)
     }
+
+    fn get_links_rel_pos(listener: TcpListener, l_port:u16, r_port:u16) 
+    -> (Option<Link>, Option<Link>, RelativePos) {
+        let (l_write_stream, r_write_stream, rel_pos) = Neigbour::get_write_streams(l_port, r_port);
+        let (l_read_stream, r_read_stream) = Neigbour::get_read_streams(listener, rel_pos);
+        
+        let l_link = if let (Some(write_stream), Some(read_stream)) = (l_write_stream, l_read_stream) {
+            Some(Link{write_stream, read_stream})
+        }
+        else {
+            None
+        };
+
+        let r_link = if let (Some(write_stream), Some(read_stream)) = (r_write_stream, r_read_stream) {
+            Some(Link{write_stream, read_stream})
+        }
+        else {
+            None
+        };
+
+        (l_link, r_link, rel_pos)
+    }
+
+    
 
 
 }

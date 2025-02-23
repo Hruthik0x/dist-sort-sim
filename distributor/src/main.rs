@@ -123,11 +123,11 @@ fn accept_nodes(listener: TcpListener, node_data : &mut Vec<Node>, max_conn : u1
     }
 }
 
-fn prepare_order(buffer: &mut [u8], l_port : u16, r_port : u16, global_pos : u16, 
+fn prepare_order(buffer: &mut [u8], l_port : u16, r_port : u16, glb_pos : u16, 
                  num : i32, stream : &mut TcpStream){
     buffer[5..7].copy_from_slice(&l_port.to_le_bytes());
     buffer[7..9].copy_from_slice(&r_port.to_le_bytes());
-    buffer[9..11].copy_from_slice(&global_pos.to_le_bytes());
+    buffer[9..11].copy_from_slice(&glb_pos.to_le_bytes());
     buffer[11..15].copy_from_slice(&num.to_le_bytes());
     assert_eq!(stream.write(buffer).expect(&format!("Failed to send data")), 15);
 }

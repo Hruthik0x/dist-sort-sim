@@ -9,7 +9,7 @@ pub enum Algo {
 }
 
 #[derive(FromPrimitive, PartialEq, Debug, Clone, Copy)]
-pub enum Position {
+pub enum RelativePos {
     Left,
     Right,
     Middle,
@@ -22,16 +22,20 @@ pub enum PartialOrder {
 }
 
 #[derive(Debug)]
+pub struct Link {
+    pub write_stream : TcpStream,
+    pub read_stream  : TcpStream,
+}
+
+#[derive(Debug)]
 pub struct Node {
     pub algo          : Algo,
     pub partial_order : PartialOrder,
-    pub write_l       : Option<TcpStream>,
-    pub write_r       : Option<TcpStream>,
-    pub read_l        : Option<TcpStream>,
-    pub read_r        : Option<TcpStream>,
+    pub left_link     : Option<Link>,
+    pub right_link    : Option<Link>, 
     pub rounds        : u16,
-    pub relative_pos  : Position,    // position relative to other nodes
-    pub global_pos    : u16,         // not used by sasaki
+    pub rel_pos  : RelativePos,    // position relative to other nodes
+    pub glb_pos    : u16,         // not used by sasaki
     pub num           : i32,
 }
 
@@ -43,8 +47,8 @@ pub struct Node {
 //             l_stream     : None, 
 //             r_stream     : None, 
 //             rounds       : 0, 
-//             relative_pos     : Position::Middle,
-//             global_pos   : 0,
+//             rel_pos     : RelativePos::Middle,
+//             glb_pos   : 0,
 //             num          : 0, 
 //         }
 //     }
