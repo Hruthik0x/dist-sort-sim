@@ -156,7 +156,7 @@ impl Distributor {
 
         match node_data.algo {
             Algo::OddEvenTransposition => algos::OddEven::odd_even_transposition(node_data),
-            Algo::Sasaki               => algos::sasaki(node_data),
+            Algo::Sasaki               => algos::Sasaki::sasaki(node_data),
             Algo::Triplet              => algos::triplet(node_data),
         }
     }

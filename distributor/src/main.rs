@@ -176,7 +176,7 @@ fn receive_output(node_data:&mut Vec<Node>, output_nums:&mut Vec<i32>){
     for node in node_data {
         match node.stream.read(&mut buffer) {
             Ok(bytes_read) => {
-                assert_eq!(bytes_read, 5);
+                assert_eq!(bytes_read, 5); 
                 assert_eq!(buffer[0], CommFlags::Finish as u8);
                 output_nums.push(i32::from_le_bytes(buffer[1..].try_into()
                                     .expect(&format!("Failed to parse {:?} into i32", &buffer[1..]
