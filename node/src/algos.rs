@@ -226,6 +226,85 @@ impl Sasaki {
 
 }
 
-pub fn triplet(node_data: &Node) -> i32 {
-    0
+pub struct Triplet;
+impl Triplet{
+    fn receive_val(read_stream:&mut TcpStream) -> i32 {
+        OddEven::receive_val(read_stream)
+    }
+
+    fn send_num(write_stream:&mut TcpStream, num : i32, buffer:&mut [u8]) {
+        buffer[1..].copy_from_slice(&num.to_le_bytes());
+
+        assert_eq!(
+            write_stream
+                .write(&buffer).expect("Failed to send the message"),
+            5
+        );
+    }
+
+    pub fn triplet(node_data: &mut Node) -> i32 {
+        let mut pos = node_data.glb_pos % 3;
+        let mut buffer = [0u8;5];
+        buffer[0] = CommFlags::Exchange as u8;
+
+        for _ in 0..node_data.rounds {
+            if pos == 1 {
+                let mut nums = vec![node_data.num];
+
+                // recieve values
+                if let Some(link) = node_data.left_link.as_mut() {
+                    let read_stream = &mut link.read_stream;
+                    nums.push(Self::receive_val(read_stream));
+                } 
+
+                if let Some(link) = node_data.right_link.as_mut() {
+                    let read_stream = &mut link.read_stream;
+                    nums.push(Self::receive_val(read_stream));
+                }
+
+                // sort values - can optimize this with conditional sorting, but 
+                nums.sort(); 
+
+                // send appropriate values
+                if let Some(link) = node_data.left_link.as_mut() {
+                    let write_stream = &mut link.write_stream;
+                    Self::send_num(write_stream, nums.remove(0), &mut buffer);
+                    node_data.num = nums.remove(0);
+                }
+
+                if let Some(link) = node_data.right_link.as_mut() {
+                    let write_stream = &mut link.write_stream;
+                    if nums.len() == 2 {
+                        node_data.num = nums.remove(0);
+                    }
+                    Self::send_num(write_stream, nums.remove(0), &mut buffer);
+                }
+            }
+            else {
+                let link;
+                if pos == 0 {
+                    link = node_data.right_link.as_mut();
+                }
+                else { 
+                    link = node_data.left_link.as_mut();
+                }
+                if let Some(link) = link {
+                    let (write_stream, read_stream) = (&mut link.write_stream, &mut link.read_stream);
+                    
+                    // send num
+                    Self::send_num(write_stream, node_data.num, &mut buffer);
+                    
+                    // updte num to the received num
+                    node_data.num = Self::receive_val(read_stream);
+                }
+            }
+
+            // avoided % 3 for performance;
+            pos += 1;
+            if pos == 3  {
+                pos = 0;
+            }
+        }
+        node_data.num
+    }
 }
