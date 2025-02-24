@@ -19,7 +19,7 @@ impl Distributor {
     // Handles the communication with the distributor
     pub fn handle_distributor(distributor_port: u16){
 
-        let (listener, self_port_num) = Utility::start_server();
+        let (listener, self_port_num) = Utility::create_server();
 
         // Max 15 used by Order
         let mut buffer = [0u8; 15];

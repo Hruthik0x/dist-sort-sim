@@ -35,7 +35,7 @@ struct Args {
         help = "Select your algorithm :     \n\
                 \t 1.Odd Even Transposition \n\
                 \t 2.Sasaki                 \n\
-                \t 3.Triplet ",
+                \t 3.Triplet (Alternate n-1)",
     )]
     algo: u8,
 
@@ -50,15 +50,17 @@ struct Args {
 
     #[arg(short, long,
         default_value_t = String::new(),
-        help = "Comma seperated numbers to sort e.g. `--nums 5,3,8,1 \n\n
-                (No spaces between numbers)`.\n\
+        help = "Comma seperated numbers to sort e.g. `--nums 5,3,8,1` \n\
+                (No spaces between numbers).\n\
                 If nums and test both mentioned, test will be ignored"
     )]
     nums: String,
 
     #[arg(short, long,
         default_value_t = 500,
-        help = "No.of random generated values to be used for testing",
+        help = "No.of random generated values to be used for testing.\n\
+                Recommended to keep it under 2000, depending on the no.of processes\n\
+                your system can handle",
     )]
     test : u16
 }
@@ -69,6 +71,7 @@ fn parse_nums(inp_str:&str) -> isize{
            .expect(&format!("Failed to parse '{}'", inp_str))
 }
 
+// gets the port number of the server hosted by the connected node
 fn get_node_port (mut stream: TcpStream) -> Node{
     let mut buffer = [0u8; 15];
     match stream.read(&mut buffer) {
@@ -88,6 +91,23 @@ fn get_node_port (mut stream: TcpStream) -> Node{
     } 
 }
 
+// generate random numbers for --test
+fn gen_random_nums(count: u16) -> Vec<i32> {
+    let mut rng = rand::rng();
+    (0..count).map(|_| rng.random_range(1..=(count as i32))).collect()
+}
+
+// verifies if the recieved result from the nodes is correct
+fn verify_results(mut input_nums:Vec<i32>, output_nums:Vec<i32>, partial_order : u8) -> bool {
+    match partial_order {
+        1 => input_nums.sort(),
+        2 => input_nums.sort_by(|a, b| b.cmp(a)) ,
+        def_val => panic!("Unexpected partial order given {}", def_val),
+    };
+    input_nums == output_nums
+}
+
+// Invokes all nodes with the distributor's port as an argument
 fn invoke_nodes(distributor_port : u16, no_nodes : u16) {
     let node_executable = if cfg!(debug_assertions) {
         "./target/debug/node"
@@ -102,13 +122,14 @@ fn invoke_nodes(distributor_port : u16, no_nodes : u16) {
             .args(&args)
             // .stdout(Stdio::inherit())
             // .stderr(Stdio::inherit())
-            .stdout(Stdio::null())     // .stdout(Stdio::inherit())
-            .stderr(Stdio::null())     // .stderr(Stdio::inherit())
+            .stdout(Stdio::null()) 
+            .stderr(Stdio::null()) 
             .spawn()
             .expect(&format!("Failed to start node process {}", i));
     }
 }
 
+// accepts incoming connections from nodes and stores their port numbers
 fn accept_nodes(listener: TcpListener, node_data : &mut Vec<Node>, max_conn : u16) {
     for stream in listener.incoming() {
         match stream {
@@ -123,6 +144,7 @@ fn accept_nodes(listener: TcpListener, node_data : &mut Vec<Node>, max_conn : u1
     }
 }
 
+// Prepares the buffer to be sent to each node
 fn prepare_order(buffer: &mut [u8], l_port : u16, r_port : u16, glb_pos : u16, 
                  num : i32, stream : &mut TcpStream){
     buffer[5..7].copy_from_slice(&l_port.to_le_bytes());
@@ -132,6 +154,8 @@ fn prepare_order(buffer: &mut [u8], l_port : u16, r_port : u16, glb_pos : u16,
     assert_eq!(stream.write(buffer).expect(&format!("Failed to send data")), 15);
 }
 
+// sends out the order to each node consisting its num, algo, partialorder 
+// and port numbers of its neighbour nodes
 fn send_order(node_data:&mut Vec<Node>, algo:u8, nums:&Vec<i32>, partial_order : u8) {
     let buffer = &mut [0u8; 15];
     buffer[1] = algo - 1;
@@ -151,6 +175,7 @@ fn send_order(node_data:&mut Vec<Node>, algo:u8, nums:&Vec<i32>, partial_order :
       len as u16, nums[len-1], &mut node_data[len-1].stream);
 }
 
+// sends start command to all nodes, to start sorting
 fn send_start(node_data:&mut Vec<Node>) {
     let buffer = [CommFlags::Start as u8];
     for node in node_data { 
@@ -158,6 +183,7 @@ fn send_start(node_data:&mut Vec<Node>) {
     }
 }
 
+// recieves ready message from all connected nodes
 fn receive_ready(node_data: &mut Vec<Node>) {
     let mut buffer = [0u8; 1];
     for node in node_data {
@@ -171,6 +197,7 @@ fn receive_ready(node_data: &mut Vec<Node>) {
     }
 }
 
+// recieves the final number from each node
 fn receive_output(node_data:&mut Vec<Node>, output_nums:&mut Vec<i32>){
     let mut buffer = [0u8; 5];
     for node in node_data {
@@ -185,20 +212,6 @@ fn receive_output(node_data:&mut Vec<Node>, output_nums:&mut Vec<i32>){
             Err(e) =>  panic!("Failed to read :{}", e)
         } 
     }
-}
-
-fn gen_random_nums(count: u16) -> Vec<i32> {
-    let mut rng = rand::rng();
-    (0..count).map(|_| rng.random_range(1..=(count as i32))).collect()
-}
-
-fn cmp_results(mut input_nums:Vec<i32>, output_nums:Vec<i32>, partial_order : u8) -> bool {
-    match partial_order {
-        1 => input_nums.sort(),
-        2 => input_nums.sort_by(|a, b| b.cmp(a)) ,
-        def_val => panic!("Unexpected partial order given {}", def_val),
-    };
-    input_nums == output_nums
 }
 
 fn main() {
@@ -222,19 +235,17 @@ fn main() {
 
 
     let mut output_nums: Vec<i32>  = Vec::new();
+    let mut node_data:Vec<Node> = Vec::new();
+    let (listener, port) = Utility::create_server();
 
     println!("Algo          : {:?}\n\
               Partial order : {:?}", args.algo, args.partial_order);
-
-    let (listener, port) = Utility::start_server();
 
     println!("=> Distributor server running on port : {}", port);
     
     invoke_nodes(port, no_nodes);
     println!("=> Nodes invoked");
 
-    let mut node_data:Vec<Node> = Vec::new();
-    
     accept_nodes(listener, &mut node_data, no_nodes);
     println!("=> Nodes connected");
 
@@ -250,5 +261,5 @@ fn main() {
     receive_output(&mut node_data, &mut output_nums);
     println!("Output :\n{:?}", output_nums);
 
-    assert!(cmp_results(input_nums, output_nums, args.partial_order));
+    assert!(verify_results(input_nums, output_nums, args.partial_order));
 }

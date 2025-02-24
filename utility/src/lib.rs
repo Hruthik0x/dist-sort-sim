@@ -1,5 +1,8 @@
 use std::net:: {TcpStream, TcpListener} ;
 
+// log macro, works same as println macro
+// will print only in debug mode
+// will not show output in release mode
 #[macro_export]
 macro_rules! log {
     ($($arg:tt)*) => {
@@ -24,33 +27,18 @@ pub enum CommFlags {
     Exchange,
 }
 
-
-
-
-// impl Order {
-//     pub fn new() -> Order {
-//         Order {
-//             algo     : Algo::OddEvenTransposition,
-//             num      : 0,
-//             no_nodes : 0,
-//             l_port   : 0,
-//             r_port   : 0,
-//         }
-//     }
-// }
-
-// push it to Node
-
-
 pub struct Utility;
 
 impl Utility {
+
+    // Connects to a socket server
     pub fn connect_to_server (port: u16) -> TcpStream {
         TcpStream::connect(format!("127.0.0.1:{}", port))
             .expect(&format!("Failed to connect to 127.0.0.1:{}", port))
     }
 
-    pub fn start_server() -> (TcpListener, u16) {
+    // create sa socket server
+    pub fn create_server() -> (TcpListener, u16) {
         let listener = TcpListener::bind("127.0.0.1:0")
             .expect("Failed to bind :(");
         
