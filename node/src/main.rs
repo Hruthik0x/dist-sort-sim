@@ -1,17 +1,3 @@
-// Rough Idea : Distributor, Nodes
-// We run the distributor with a bunch of args, these args consist of the numbers to sort and algo to use
-// The distributor runs a TCP server.
-// The distributor then invokes the nodes (creates a process for each node)
-// All the nodes request a port_num from the OS, start their own TCP server
-// These nodes would then connect to the distributors TCP server
-// The nodes would send their port num to the distributor
-// The distributor would then send a message consisting algo, no.of nodes, num assigned, neighbour port nums
-// In the nodes :
-// the server part is (responsible for) used to read data from neighbours
-// the client part is (responsible for) used to send data to the neighbours
-// thus mimicing two channels, one for reading and one for writing.
-// each node will have one listener, which gets two streams (neigbours)
-
 use std::net::{TcpListener, TcpStream};
 use num_traits::FromPrimitive ;
 use clap::Parser;
