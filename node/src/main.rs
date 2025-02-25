@@ -29,9 +29,6 @@ impl Distributor {
         log!("Connected to distributor");
     
         Self::report(self_port_num, &mut stream);
-
-        // I'll receive the order then stop reading data from the server
-        // When the connection ends 
     
         match stream.read(&mut buffer) {
             Ok(bytes_read) => {
@@ -47,26 +44,11 @@ impl Distributor {
             Err(e) => panic!("Failed to read : {}", e),
         }
 
-        // Neigbour::accept_neighbours(listener, &mut node_data);
-
-        // Sending the ready flag
-        assert_eq!(stream.write(&[CommFlags::Ready as u8]).expect("Failed to send ready msg"), 1);
-
-        match stream.read(&mut buffer) {
-            Ok(bytes_read) => {
-                log!("Received from distributor [{}] : {:?}", bytes_read, &buffer[..bytes_read]);
-                assert_eq!(buffer[0], CommFlags::Start as u8);
-                assert_eq!(bytes_read, 1);
-                buffer[0] = CommFlags::Finish as u8;
-                buffer[1..5].copy_from_slice(
-                        &Self::start_sorting(&mut node_data).to_le_bytes()
-                );
-
-                assert_eq!(stream.write(&buffer[..5]).expect("Failed to send msg"), 5);
-            }
-            Err(e) => panic!("Failed to read : {}", e),
-        }
-
+        buffer[0] = CommFlags::Finish as u8;
+        buffer[1..5].copy_from_slice(
+                &Self::start_sorting(&mut node_data).to_le_bytes()
+        );
+        assert_eq!(stream.write(&buffer[..5]).expect("Failed to send msg"), 5);
     }
 
     // reports to the Distributor about its presence and its port num

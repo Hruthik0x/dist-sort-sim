@@ -175,28 +175,6 @@ fn send_order(node_data:&mut Vec<Node>, algo:u8, nums:&Vec<i32>, partial_order :
       len as u16, nums[len-1], &mut node_data[len-1].stream);
 }
 
-// sends start command to all nodes, to start sorting
-fn send_start(node_data:&mut Vec<Node>) {
-    let buffer = [CommFlags::Start as u8];
-    for node in node_data { 
-        assert_eq!(node.stream.write(&buffer).expect("Failed to send the msg"), 1);
-    }
-}
-
-// recieves ready message from all connected nodes
-fn receive_ready(node_data: &mut Vec<Node>) {
-    let mut buffer = [0u8; 1];
-    for node in node_data {
-        match node.stream.read(&mut buffer) {
-            Ok(bytes_read) => {
-                assert_eq!(bytes_read, 1);
-                assert_eq!(buffer[0], CommFlags::Ready as u8);
-            },
-            Err(e) =>  panic!("Failed to read :{}", e)
-        } 
-    }
-}
-
 // recieves the final number from each node
 fn receive_output(node_data:&mut Vec<Node>, output_nums:&mut Vec<i32>){
     let mut buffer = [0u8; 5];
@@ -251,12 +229,6 @@ fn main() {
 
     send_order(&mut node_data, args.algo, &input_nums, args.partial_order);
     println!("=> Order sent to the nodes");
-
-    receive_ready(&mut node_data);
-    println!("=> All nodes ready");
-
-    send_start(&mut node_data);
-    println!("=> Sorting started");
 
     receive_output(&mut node_data, &mut output_nums);
     println!("Output :\n{:?}", output_nums);

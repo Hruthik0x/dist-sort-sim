@@ -15,11 +15,9 @@ macro_rules! log {
 pub enum CommFlags {
     // Sent by Distributor to Node
     Order,
-    Start,
 
     // Sent by Node to Distributor
     Report,
-    Ready,
     Finish,
 
     // Sent from one node to another
