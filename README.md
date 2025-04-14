@@ -14,12 +14,10 @@ chmod +x simulate.sh
 ```
 
 ## Distributor Overview
-The Distributor is responsible for managing and coordinating multiple Node processes to simulate a distributed sorting system over a line network. Its key responsibilities include:
-
-- Launching Node Processes: The Distributor starts multiple Node instances, each as an independent process.
-- Send order to Nodes :Assigning the number, algorithm and partial order.
-- Defining Network Topology: The Distributor assigns each Node its neigbbouring Nodes to simulate a line network.
-- Collecting Sorted Results: After sorting, the Distributor retrieves the final values from all Nodes.
+- Launching Node Processes : The Distributor starts multiple Node instances, each as an independent process.
+- Send order to Nodes : Assigning the number, algorithm and partial order.
+- Defining Network Topology : The Distributor assigns each Node its neigbbouring Nodes to simulate a line network.
+- Collecting Sorted Results : After sorting, the Distributor retrieves the final values from all Nodes.
 
 ## Node Overview
 - Establishes a connection with the Distributor.
@@ -64,7 +62,6 @@ Once all Nodes have connected, the Distributor :
 
 ### Distributor Initiates Sorting:
 - Once the Distributor has received "Ready" messages from all Nodes, it sends a "Start" command to all Nodes.
-
 
 ### Nodes Execute Sorting Algorithm:
 - Upon receiving the "Start" signal, Nodes begin sorting using the assigned algorithm.

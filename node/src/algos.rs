@@ -4,11 +4,9 @@ use std::net::TcpStream;
 use std::io::{Read, Write};
 
 use crate::node_utils::{Link, Node, PartialOrder, RelativePos};
-use utility::log;
 
 #[derive(PartialEq, Debug)]
 pub struct OddEven;
-
 
 fn should_swap_right (partial_order:PartialOrder, cur_num:i32, rec_val:i32) -> bool{
     (partial_order == PartialOrder::LessThan && 
@@ -40,8 +38,6 @@ impl OddEven {
 
             Ok(bytes_read) => {
 
-                log!("Receivced from neighbour [{}] : {:?}", bytes_read, &buffer[..bytes_read]);
-
                 assert_eq!(bytes_read, 5);
                 assert_eq!(buffer[0], CommFlags::Exchange as u8);
 
@@ -55,9 +51,21 @@ impl OddEven {
         }
     }
 
+    fn send_val(write_stream:&mut TcpStream, num : i32, buffer:&mut [u8]) {
+        
+        // writing number to the next 4 bytes (1st byte is used for Exchange Flag)
+        buffer[1..].copy_from_slice(&num.to_le_bytes());
+
+        assert_eq!(
+            write_stream
+                .write(&buffer).expect("Failed to send the message"),
+            5
+        );
+    }
+
     pub fn odd_even_transposition(node_data: &mut Node) -> i32{
 
-        let mut is_odd_round     = true;
+        let mut is_odd_round  = true;
         let has_odd_index     = match node_data.glb_pos % 2 {
                                         0 => false,
                                         1 => true,
@@ -65,6 +73,7 @@ impl OddEven {
                                     };
         let mut buffer= [0u8; 5];
 
+        // Setting first byte as CommFlags::Exchange, indicating number exchange
         buffer[0] = CommFlags::Exchange as u8;
 
         for _ in 0..node_data.rounds {
@@ -73,38 +82,43 @@ impl OddEven {
 
             match (has_odd_index == is_odd_round, node_data.rel_pos) {
 
-                // Current round -> odd round and node is at odd index or 
-                // Current round -> even round and node is at even index
+                // Current round is odd round and node is at odd index or 
+                // Current round is even round and node is at even index
+                // link = right_link and compute_fn = shyould_swap_right
                 (true, pos) if pos != RelativePos::Right => {
                     (node_data.right_link.as_mut(),
                     Some(should_swap_right as fn(PartialOrder, i32, i32) -> bool))
                 }
 
-                // Current round -> even round and node is at odd index or 
-                // Current round -> odd round and node is at even index
+                // Current round is even round and node is at odd index or 
+                // Current round is odd round and node is at even index
+                // link = left_link and compute_fn = should_swap_left
                 (false, pos) if pos != RelativePos::Left => {
                     (node_data.left_link.as_mut(),
-                        Some(should_swap_left as fn(PartialOrder, i32, i32) -> bool))
+                    Some(should_swap_left as fn(PartialOrder, i32, i32) -> bool))
                 }
+
+                // else link, compute_fn = None
                 _ => (None, None),
             };
 
+            // if both link and compute_fn are not none
             if let (Some(link), Some(compute_fn)) =
+
+                 // unpacked link and compute_fn
                  (link, compute_fn) {
 
+                // unpacking write stream and left stream from link
                 let (write_stream, read_stream) = (&mut link.write_stream, &mut link.read_stream);
 
-                buffer[1..].copy_from_slice(&node_data.num.to_le_bytes());
+                // sending this nodes number to appropriate neighbour
+                Self::send_val(write_stream, node_data.num, &mut buffer);
 
-                assert_eq!(
-                    write_stream
-                        .write(&buffer).expect("Failed to send the message"),
-                    5
-                );
-
+                // Receiving value from the appropriate neighbour
                 let rec_val = Self::receive_val(read_stream);
 
-                // compute
+                // compute, if the node has to update its value, depending on the partial order
+                // and node's number and received number.
                 if compute_fn(node_data.partial_order, node_data.num, rec_val) {
                     node_data.num = rec_val;
                 }
@@ -128,7 +142,7 @@ pub struct Sasaki {
 
 impl Sasaki {
     fn receive_val(read_stream:&mut TcpStream) -> Sasaki{
-        // max 5 used by CommFlags:Exchange (1) + i32 (4)
+        // max 6 used by CommFlags:Exchange (1) + val (4) + mark(1)
         let mut buffer = [0u8; 6];
 
         match read_stream.read(&mut buffer) {
@@ -143,9 +157,11 @@ impl Sasaki {
 
                 assert_eq!(bytes_read, 6);
                 assert_eq!(buffer[0], CommFlags::Exchange as u8);
+
+                // mark has to be either 0 or 1
                 assert!(buffer[1] < 2);
 
-
+                // This value is returned
                 Sasaki {
                      num : i32::from_le_bytes(
                          buffer[2..].try_into()
@@ -173,26 +189,30 @@ impl Sasaki {
             _ => 0,
         };
         let mut buffer = [0u8; 6];
+    
+        // Setting first byte as CommFlags::Exchange, indicating number exchange
         buffer[0] = CommFlags::Exchange as u8;
-
-        
-        let is_marked = if node_data.rel_pos == RelativePos::Middle { false } else { true };
-        
+   
+        let is_marked = if node_data.rel_pos == RelativePos::Middle { false } else { true };        
         let mut left_num = Sasaki{num:node_data.num, is_marked};
         let mut right_num = Sasaki{num:node_data.num, is_marked};
 
+        for _ in 0..node_data.rounds {
 
-        for round in 0..node_data.rounds {
-
+            // if left neigbour exists
             if node_data.left_link.is_some() {
+                // Sending and receiving to and from left neighbour
                 let rec_val = Sasaki::send_recv_data(node_data.left_link.as_mut().unwrap(), &mut buffer, &left_num);
-                log!("{} {} Received from left : {:?}", round, node_data.glb_pos, rec_val);
+
+                // Check if the node has to update the local left val
                 if should_swap_left(node_data.partial_order, left_num.num, rec_val.num) {
-                    // left_num = rec_val;
+
+                    // if value sent to the left neighbour is marked
                     if left_num.is_marked {
                         area += 1;
                     }
 
+                    // if the value received from the left neighbour is marked
                     if rec_val.is_marked {
                         area -= 1;
                     }
@@ -201,25 +221,38 @@ impl Sasaki {
                 }
             }
 
+            // if right neighbout exists
             if node_data.right_link.is_some() {
+                // Sending and receivng to and from the right neighbour
                 let rec_val = Sasaki::send_recv_data(node_data.right_link.as_mut().unwrap(), &mut buffer, &right_num);
-                log!("{} {} Received from right : {:?}", round, node_data.glb_pos, rec_val);
+
+                // Check if the node has to update the local right val
                 if should_swap_right(node_data.partial_order, right_num.num, rec_val.num) {
                     right_num = rec_val;
                 }
             }
 
+            // internal sorting
+            // it received values from both left and right 
+            // so it has to arrange them
             if node_data.rel_pos == RelativePos::Middle {
+
+                // partial order is > and left < right or 
+                // partial order is < and right > left
                 if ((left_num.num < right_num.num) && (node_data.partial_order == PartialOrder::GreaterThan)) || 
                    ((left_num.num > right_num.num) && (node_data.partial_order == PartialOrder::LessThan)) {
                         swap(&mut left_num, &mut right_num);
                 }
             }
         }
+
+        // After all rounds
         if area == -1 {
+            // Return this
             right_num.num 
         }   
         else {
+            // Return this
             left_num.num
         }
     }
@@ -232,59 +265,66 @@ impl Triplet{
         OddEven::receive_val(read_stream)
     }
 
-    fn send_num(write_stream:&mut TcpStream, num : i32, buffer:&mut [u8]) {
-        buffer[1..].copy_from_slice(&num.to_le_bytes());
-
-        assert_eq!(
-            write_stream
-                .write(&buffer).expect("Failed to send the message"),
-            5
-        );
+    fn send_val(write_stream:&mut TcpStream, num : i32, buffer:&mut [u8]) {
+        OddEven::send_val(write_stream, num, buffer);
     }
 
     pub fn triplet(node_data: &mut Node) -> i32 {
         let mut pos = node_data.glb_pos % 3;
         let mut buffer = [0u8;5];
+
+        // Setting first byte as CommFlags::Exchange, indicating number exchange
         buffer[0] = CommFlags::Exchange as u8;
 
         for _ in 0..node_data.rounds {
             if pos == 1 {
                 let mut nums = vec![node_data.num];
 
-                // recieve values
+                // recieve values from neighbouts
+
+                // receive from left neighbour (if exists)
                 if let Some(link) = node_data.left_link.as_mut() {
                     let read_stream = &mut link.read_stream;
                     nums.push(Self::receive_val(read_stream));
                 } 
 
+                // receive from right neighbour (if exists)
                 if let Some(link) = node_data.right_link.as_mut() {
                     let read_stream = &mut link.read_stream;
                     nums.push(Self::receive_val(read_stream));
                 }
 
-                // sort values - can optimize this with conditional sorting, but 
+                // sort values - can optimize this with conditional sorting
+                // for now just sorting the three nums with quick sort
                 nums.sort(); 
 
                 // send appropriate values
+
+                // Sending num to the left neighbur (if exists)
                 if let Some(link) = node_data.left_link.as_mut() {
                     let write_stream = &mut link.write_stream;
-                    Self::send_num(write_stream, nums.remove(0), &mut buffer);
+                    Self::send_val(write_stream, nums.remove(0), &mut buffer);
                     node_data.num = nums.remove(0);
                 }
 
+                // sending num to the right neighbour (if exists)
                 if let Some(link) = node_data.right_link.as_mut() {
                     let write_stream = &mut link.write_stream;
                     if nums.len() == 2 {
                         node_data.num = nums.remove(0);
                     }
-                    Self::send_num(write_stream, nums.remove(0), &mut buffer);
+                    Self::send_val(write_stream, nums.remove(0), &mut buffer);
                 }
             }
             else {
                 let link;
+                // send and receive from the right neighbour
                 if pos == 0 {
                     link = node_data.right_link.as_mut();
                 }
+
+                // send and receive from the left neighbour
+                // pos == 2
                 else { 
                     link = node_data.left_link.as_mut();
                 }
@@ -292,7 +332,7 @@ impl Triplet{
                     let (write_stream, read_stream) = (&mut link.write_stream, &mut link.read_stream);
                     
                     // send num
-                    Self::send_num(write_stream, node_data.num, &mut buffer);
+                    Self::send_val(write_stream, node_data.num, &mut buffer);
                     
                     // updte num to the received num
                     node_data.num = Self::receive_val(read_stream);
@@ -305,6 +345,7 @@ impl Triplet{
                 pos = 0;
             }
         }
+        // Return this
         node_data.num
     }
 }

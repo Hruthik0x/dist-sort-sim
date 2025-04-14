@@ -214,6 +214,8 @@ fn main() {
 
     let mut output_nums: Vec<i32>  = Vec::new();
     let mut node_data:Vec<Node> = Vec::new();
+
+    //Creating socket server for the nodes to connect to the distributor
     let (listener, port) = Utility::create_server();
 
     println!("Algo          : {:?}\n\
@@ -221,17 +223,22 @@ fn main() {
 
     println!("=> Distributor server running on port : {}", port);
     
+    // Invoking the nodes
     invoke_nodes(port, no_nodes);
     println!("=> Nodes invoked");
 
+    // Accept connections from the nodes
     accept_nodes(listener, &mut node_data, no_nodes);
     println!("=> Nodes connected");
 
+    // Send each node its neighbour port numbers and the number its assigned
     send_order(&mut node_data, args.algo, &input_nums, args.partial_order);
     println!("=> Order sent to the nodes");
 
+    // Receive the numbers fro hte nodes
     receive_output(&mut node_data, &mut output_nums);
     println!("Output :\n{:?}", output_nums);
 
+    // Locally sort the numbers and verify if the received results from the nodes are correct
     assert!(verify_results(input_nums, output_nums, args.partial_order));
 }
