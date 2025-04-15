@@ -1,5 +1,10 @@
 Repo can be found [here](https://github.com/Hruthik0x/dist-sort-sim/tree/assignment)
 
+## Important note
+- Each node stores its log at ./log directory
+- A log file named node_3 does not imply that the node is at position 3 in the line network. It simply reflects the node's ID — nodes are not arranged on the network based on their IDs.
+- Global position of the node on the line network is mentioned in the log at `Global position`.
+
 ## Assignment 
 ```sh
 chmod +x ./simulate.sh
@@ -10,7 +15,7 @@ chmod +x ./simulate.sh
 ./simulate.sh --alternate
 
 # For comparision table
-./simulate.sh --compare         
+./simulate.sh --comp         
 ```
 
 ## About
