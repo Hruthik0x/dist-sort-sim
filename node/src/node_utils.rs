@@ -1,15 +1,37 @@
 use std::net::{TcpListener, TcpStream};
 use num_derive::FromPrimitive;
-use utility::{CommFlags, Utility, log};
+use utility::{CommFlags, Utility};
 use std::io::{Read, Write};
 use num_traits::FromPrimitive;
-use super::algos::{OddEven, Sasaki, Triplet};
+use super::algos::{OddEven, Sasaki, Alternate};
+use std::fmt;
 
 #[derive(FromPrimitive, Copy, Clone, Debug)]
 pub enum Algo {
     OddEvenTransposition, 
     Sasaki, 
-    Triplet
+    Alternate
+}
+
+impl fmt::Display for Algo {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let name = match self {
+            Algo::OddEvenTransposition => "Odd-Even",
+            Algo::Sasaki => "Sasaki",
+            Algo::Alternate => "Alternate",
+        };
+        write!(f, "{}", name)
+    }
+}
+
+impl fmt::Display for PartialOrder {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let name = match self {
+            PartialOrder::LessThan => "LessThan",
+            PartialOrder::GreaterThan => "GreaterThan",
+        };
+        write!(f, "{}", name)
+    }
 }
 
 #[derive(FromPrimitive, PartialEq, Debug, Clone, Copy)]
@@ -35,7 +57,7 @@ pub fn get_rounds (algo : Algo, no_nodes : u16) -> u16 {
     match algo {
         Algo::OddEvenTransposition => no_nodes,
         Algo::Sasaki               => no_nodes - 1,
-        Algo::Triplet              => no_nodes - 1
+        Algo::Alternate              => no_nodes - 1
     }
 }
 
@@ -85,7 +107,6 @@ impl Neighbour {
                         match stream.read(&mut buffer) {
                             Ok(bytes_read) => {
 
-                                log!("Received from neigbour : {:?}", &buffer[..bytes_read]);
                                 assert_eq!(bytes_read, 2);
                                 assert_eq!(buffer[0], CommFlags::NeigbourConnect as u8);
     
@@ -99,6 +120,8 @@ impl Neighbour {
                                         assert_ne!(rel_pos, RelativePos::Left);
                                         l_read = Some(stream);
 
+                                        println!("Write channel for left neighbour is ready");
+
                                         // If this node is rightmost node or 
                                         // already has left node connected
                                         if rel_pos == RelativePos::Right || r_read.is_some() {
@@ -111,6 +134,8 @@ impl Neighbour {
                                         // Connot have rightmost node have a right neighbour
                                         assert_ne!(rel_pos, RelativePos::Right);
                                         r_read = Some(stream);
+
+                                        println!("Write channel for right neighbour is ready");
 
                                         // if the is leftmost node or 
                                         // already has right node connected
@@ -161,6 +186,7 @@ impl Neighbour {
             rel_pos = RelativePos::Left;
             r_stream = Some(Utility::connect_to_server(r_port));
             l_stream = None;
+            println!("Write channel for right neighbour is ready");
         }
 
         // && l_port != 0
@@ -169,13 +195,17 @@ impl Neighbour {
             rel_pos = RelativePos::Right;
             l_stream = Some(Utility::connect_to_server(l_port));
             r_stream = None;
+            println!("Write channel for left neighbour is ready");
         }
 
         // both left and right and left neighbours exist
         else {
             rel_pos = RelativePos::Middle;
             l_stream = Some(Utility::connect_to_server(l_port));
+            println!("Write channel for left neighbour is ready");
+
             r_stream = Some(Utility::connect_to_server(r_port));
+            println!("Write channel for right neighbour is ready");
         }
 
         // if l_stream is not none, i.e if left neighbour is available
@@ -261,7 +291,7 @@ impl Distributor {
 
 
             let algo = FromPrimitive::from_u8(algo)
-                .expect(&format!("Unknown algo {} (0 : Odd-Even | 1 : Sasaki | 2 : Triplet)", algo));
+                .expect(&format!("Unknown algo {} (0 : Odd-Even | 1 : Sasaki | 2 : Alternate)", algo));
         
             let partial_order = FromPrimitive::from_u8(partial_order)
                 .expect(&format!("Unknow partial order {} (0 : LessThan | 1 : GreaterThan)", partial_order));
@@ -303,7 +333,21 @@ impl Distributor {
             // link will have read and right stream to the neighbour
             // left and right links are none if the respective neighbouts do no exist 
             let (left_link, right_link, rel_pos) = Neighbour::get_links_rel_pos(listener, l_port, r_port);
-            
+        
+            println!("\n\nAlgo                 : {}", algo);
+            println!("Partial order        : {}", partial_order);
+            println!("No.of Nodes          : {}", no_nodes);
+            if l_port != 0 
+            {
+                println!("Left neighbour port  : {}", l_port);
+            }
+            if r_port != 0 
+            {
+                println!("Right neighbour port : {}", r_port);
+            }
+            println!("Global position      : {}", glb_pos);
+            println!("Assigned number      : {}", no_nodes);
+
             Node {algo, partial_order, left_link, right_link, rounds, rel_pos, glb_pos, num}
         }
     }
@@ -315,7 +359,7 @@ impl Distributor {
         match node_data.algo {
             Algo::OddEvenTransposition => OddEven::odd_even_transposition(node_data),
             Algo::Sasaki               => Sasaki::sasaki(node_data),
-            Algo::Triplet              => Triplet::triplet(node_data),
+            Algo::Alternate              => Alternate::alternate(node_data),
         }
     }
 }

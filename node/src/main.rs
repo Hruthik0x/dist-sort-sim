@@ -1,7 +1,7 @@
 use clap::Parser;
 use std::io::{Read, Write};
 
-use utility::{CommFlags, Utility, log};
+use utility::{CommFlags, Utility};
 
 mod node_utils;
 mod algos;
@@ -29,7 +29,10 @@ fn main() {
     let mut stream = Utility::connect_to_server(Args::parse().dist_port);
     let mut node_data;
 
-    log!("Connected to distributor");
+    println!("Important note : Please use 'global position' in the logs
+              \t Do not rely on node_{{id}} at the end of the file name
+              \t for determining the position of the node\n");
+    println!("Connected to distributor");
 
     // report back to the distributor, informing the node is 
     // ready and send its port num
@@ -37,8 +40,7 @@ fn main() {
 
     // Receiving the order
     match stream.read(&mut buffer) {
-        Ok(bytes_read) => {
-            log!("Received from distributor [{}] : {:?}", bytes_read, &buffer[..bytes_read]);
+        Ok(_) => {
             let cmd = buffer[0];
             match cmd {
                 // First byte of the messge as CpmmFlags::Order 
@@ -63,5 +65,6 @@ fn main() {
             // Copies this output to `buffer`
             &Distributor::start_sorting(&mut node_data).to_le_bytes()
     );
+
     assert_eq!(stream.write(&buffer[..5]).expect("Failed to send msg"), 5);
 }

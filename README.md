@@ -1,3 +1,5 @@
+Repo can be found [here](https://github.com/Hruthik0x/dist-sort-sim/tree/assignment)
+
 ## Assignment 
 ```sh
 chmod +x ./simulate.sh
@@ -5,7 +7,7 @@ chmod +x ./simulate.sh
 # For specific distributed algorithm
 ./simulate.sh --sasaki
 ./simulate.sh --odd-even
-./simulate.sh --alternative
+./simulate.sh --alternate
 
 # For comparision table
 ./simulate.sh --compare         
@@ -18,7 +20,7 @@ Each Node runs as a separate process and exchanges data with other Nodes through
 It simulates : 
 1) [Odd-Even Transposition](https://en.wikipedia.org/wiki/Odd%E2%80%93even_sort)
 2) [Sasaki](https://www.sciencedirect.com/science/article/abs/pii/S0020019001003076)
-3) [Triplet (Alternate n-1 round)](https://ieeexplore.ieee.org/document/5484861)
+3) [Alternate (Alternate n-1 round)](https://ieeexplore.ieee.org/document/5484861)
 
 ## Help Yourself
 ```

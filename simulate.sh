@@ -10,7 +10,7 @@ ARGS=()
 # First pass to detect custom flag presence
 for arg in "$@"; do
   case "$arg" in
-    --sasaki|--alternative|--odd-even)
+    --sasaki|--alternate|--odd-even)
       has_custom_flag=true
       break
       ;;
@@ -24,7 +24,7 @@ while [[ $# -gt 0 ]]; do
       ARGS+=("-a" "2")
       shift
       ;;
-    --alternative)
+    --alternate)
       ARGS+=("-a" "3")
       shift
       ;;
