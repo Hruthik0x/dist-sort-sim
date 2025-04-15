@@ -1,3 +1,16 @@
+## Assignment 
+```sh
+chmod +x ./simulate.sh
+
+# For specific distributed algorithm
+./simulate.sh --sasaki
+./simulate.sh --odd-even
+./simulate.sh --alternative
+
+# For comparision table
+./simulate.sh --compare         
+```
+
 ## About
 This program simulates distributed sorting on a line network using independent processes and socket-based communication. 
 Each Node runs as a separate process and exchanges data with other Nodes through sockets.
@@ -9,7 +22,7 @@ It simulates :
 
 ## Help Yourself
 ```
-chmod +x simulate.sh
+chmod +x ./simulate.sh
 ./simulate.sh --help
 ```
 

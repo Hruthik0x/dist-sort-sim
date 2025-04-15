@@ -1,4 +1,4 @@
-use utility::CommFlags;
+use utility::{CommFlags};
 use std::mem::swap;
 use std::net::TcpStream;
 use std::io::{Read, Write};
@@ -61,6 +61,8 @@ impl OddEven {
                 .write(&buffer).expect("Failed to send the message"),
             5
         );
+
+        log!("Sent the val to");
     }
 
     pub fn odd_even_transposition(node_data: &mut Node) -> i32{

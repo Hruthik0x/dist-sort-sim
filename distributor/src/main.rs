@@ -32,7 +32,10 @@ struct Args {
     #[arg(short, long, 
         default_value_t = 2,
         value_parser = clap::value_parser!(u8).range(1..=3),
-        help = "Select your algorithm :     \n\
+        help = "Important note :\n\
+                    \tIf you mnetion --sasaki or --odd-even or --alternative in the\n\
+                    \tcommand line args when running ./simulate.sh -a will be ignored\n\
+                Select your algorithm :     \n\
                 \t 1.Odd Even Transposition \n\
                 \t 2.Sasaki                 \n\
                 \t 3.Triplet (Alternate n-1)",
@@ -57,7 +60,7 @@ struct Args {
     nums: String,
 
     #[arg(short, long,
-        default_value_t = 500,
+        default_value_t = 50,
         help = "No.of random generated values to be used for testing.\n\
                 Recommended to keep it under 2000, depending on the no.of processes\n\
                 your system can handle",
